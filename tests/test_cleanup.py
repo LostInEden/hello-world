@@ -130,6 +130,33 @@ def test_faithful_rewrite_rejects_empty():
     assert not is_faithful_rewrite("some raw text", "")
 
 
+def test_warmup_asks_ollama_to_load_the_model():
+    cleaner = Cleaner(CONFIG)
+    with mock.patch("whisperflow.cleanup.requests.post") as post:
+        post.return_value = _response({"response": ""})
+        cleaner.warmup()
+        payload = post.call_args.kwargs["json"]
+        assert payload["model"] == "gemma3:4b"
+        assert payload["prompt"] == ""  # empty prompt = load only
+        assert payload["keep_alive"] == "10m"
+
+
+def test_warmup_survives_ollama_down():
+    cleaner = Cleaner(CONFIG)
+    with mock.patch(
+        "whisperflow.cleanup.requests.post",
+        side_effect=requests.ConnectionError("refused"),
+    ):
+        cleaner.warmup()  # must not raise
+
+
+def test_warmup_skipped_when_disabled():
+    cleaner = Cleaner({**CONFIG, "enabled": False})
+    with mock.patch("whisperflow.cleanup.requests.post") as post:
+        cleaner.warmup()
+        post.assert_not_called()
+
+
 def test_is_available_true_false():
     cleaner = Cleaner(CONFIG)
     with mock.patch("whisperflow.cleanup.requests.get") as get:

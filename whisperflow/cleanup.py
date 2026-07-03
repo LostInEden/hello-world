@@ -86,6 +86,25 @@ class Cleaner:
         except requests.RequestException:
             return False
 
+    def warmup(self) -> None:
+        """Ask Ollama to load the model into memory so the first real cleanup
+        doesn't pay the multi-second cold-start. Fire-and-forget."""
+        if not self.enabled:
+            return
+        try:
+            requests.post(
+                f"{self.host}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": "",
+                    "stream": False,
+                    "keep_alive": self.keep_alive,
+                },
+                timeout=max(self.timeout, 60),
+            )
+        except requests.RequestException:
+            pass  # Ollama down is fine; clean() falls back to raw transcripts
+
     def list_models(self) -> list:
         """Names of the models currently pulled in Ollama ([] if unreachable)."""
         try:

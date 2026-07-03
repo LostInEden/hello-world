@@ -1,16 +1,17 @@
-"""Floating status pill, Wispr-Flow style.
+"""Floating status pill, styled after Wispr Flow's indicator.
 
-A small frameless, always-on-top window at the bottom-center of the screen:
+A light rounded pill with a dark outline and a thin vertical-bar waveform:
+while recording, the bars are a scrolling history of the live microphone
+level (newest on the right), so the waveform visibly travels as you speak;
+while processing, a soft wave ripples across the bars. Hidden when idle.
 
-  - hidden while idle
-  - vertical bars dancing with the live microphone level while recording
-  - a traveling-wave animation while transcribing/cleaning up
-
-tkinter needs to own the main thread, so ``run()`` blocks with the Tk main
-loop and other threads change what's displayed via ``set_state()`` (a plain
-attribute write, applied by the animation tick). The window never takes
-focus — on Windows it's additionally marked NOACTIVATE and click-through so
-it can't steal keystrokes from the app being dictated into.
+Rendering runs at 60 fps with exponential smoothing toward target heights,
+so bars glide instead of jumping. tkinter needs to own the main thread, so
+``run()`` blocks with the Tk main loop and other threads change what's
+displayed via ``set_state()`` (a plain attribute write, applied by the
+animation tick). The window never takes focus — on Windows it's additionally
+marked NOACTIVATE and click-through so it can't steal keystrokes from the
+app being dictated into.
 """
 
 from __future__ import annotations
@@ -18,45 +19,45 @@ from __future__ import annotations
 import math
 import sys
 import time
+from collections import deque
 from typing import Any, Callable, Dict, Optional
 
-BAR_COUNT = 5
-WIDTH = 148
-HEIGHT = 40
-BAR_WIDTH = 6
-BAR_GAP = 8
-BAR_MIN = 5.0
-BAR_MAX = 24.0
-FPS = 30
+BAR_COUNT = 21
+BAR_WIDTH = 3
+BAR_GAP = 3
+BAR_MIN = 3.0
+BAR_MAX = 26.0
+WIDTH = 200
+HEIGHT = 48
+FPS = 60
+SMOOTHING = 0.35          # per-frame lerp factor toward target heights
+PUSH_INTERVAL = 0.05      # seconds between waveform scroll steps
 
 # Color key treated as fully transparent on Windows (gives the pill its
-# rounded shape). On platforms without -transparentcolor it's just a dark bg.
+# rounded shape). On platforms without -transparentcolor it's just a border.
 TRANSPARENT = "#000001"
-PILL = "#1d1d24"
-BAR_RECORDING = "#f5f5f7"
-BAR_PROCESSING = "#8f97a8"
+PILL_BG = "#faf7ee"
+INK = "#141414"
+INK_PROCESSING = "#8d8d8d"
+OUTLINE_WIDTH = 3
 
 
-def bar_heights(state: str, phase: float, level: float, count: int = BAR_COUNT) -> list[float]:
-    """Pure animation math: bar heights in pixels for a given state.
+def level_to_height(level: float) -> float:
+    """Map a mic level in [0, 1] to a bar height in pixels.
 
-    recording:  center-weighted bars scale with the mic level and shimmer.
-    processing: a constant-energy wave travels across the bars.
-    anything else: flat at the minimum height.
+    The 0.6 gamma lifts quiet speech so the waveform looks alive at
+    conversational volume instead of only when shouting.
     """
+    level = max(0.0, min(1.0, level))
+    return BAR_MIN + (BAR_MAX - BAR_MIN) * (level ** 0.6)
+
+
+def wave_heights(phase: float, count: int = BAR_COUNT) -> list:
+    """Processing animation: a gentle wave rippling across the bars."""
     heights = []
     for i in range(count):
-        if state == Overlay.RECORDING:
-            center_weight = 1.0 - 0.35 * abs(i - (count - 1) / 2) / max(1, (count - 1) / 2)
-            shimmer = 0.7 + 0.3 * math.sin(phase * (5.1 + 0.7 * i) + i * 1.9)
-            # Small baseline so the pill visibly "breathes" even in silence.
-            drive = (0.12 + 0.88 * max(0.0, min(1.0, level))) * center_weight * shimmer
-            heights.append(BAR_MIN + (BAR_MAX - BAR_MIN) * min(1.0, drive))
-        elif state == Overlay.PROCESSING:
-            wave = 0.5 * (1.0 + math.sin(phase * 6.0 - i * 1.1))
-            heights.append(BAR_MIN + (BAR_MAX - BAR_MIN) * 0.55 * wave)
-        else:
-            heights.append(BAR_MIN)
+        w = 0.5 * (1.0 + math.sin(phase * 5.0 - i * 0.55))
+        heights.append(BAR_MIN + (BAR_MAX - BAR_MIN) * 0.45 * w)
     return heights
 
 
@@ -70,12 +71,17 @@ class Overlay:
         self.margin = int(config.get("margin", 56))
         self._level_provider = level_provider or (lambda: 0.0)
         self._state = self.HIDDEN
+        self._prev_state = self.HIDDEN
         self._closing = False
         self._shown = False
         self._phase = 0.0
         self._last_tick = 0.0
+        self._last_push = 0.0
+        self._peak = 0.0
+        self._history = deque([0.0] * BAR_COUNT, maxlen=BAR_COUNT)
+        self._display = [BAR_MIN] * BAR_COUNT
         self._root = None
-        self._bars: list[int] = []
+        self._bars: list = []
 
     # -- thread-safe surface (called from hotkey/worker threads) --
 
@@ -108,22 +114,18 @@ class Overlay:
         canvas.pack()
         self._canvas = canvas
 
-        # Rounded pill: two circles + a joining rectangle.
-        r = HEIGHT // 2
-        canvas.create_oval(0, 0, HEIGHT, HEIGHT, fill=PILL, outline=PILL)
-        canvas.create_oval(WIDTH - HEIGHT, 0, WIDTH, HEIGHT, fill=PILL, outline=PILL)
-        canvas.create_rectangle(r, 0, WIDTH - r, HEIGHT, fill=PILL, outline=PILL)
+        self._draw_pill(canvas)
 
         total = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
-        x0 = (WIDTH - total) / 2
+        x0 = (WIDTH - total) / 2 + BAR_WIDTH / 2
         mid = HEIGHT / 2
         self._bars = []
         for i in range(BAR_COUNT):
             x = x0 + i * (BAR_WIDTH + BAR_GAP)
             self._bars.append(
-                canvas.create_rectangle(
-                    x, mid - BAR_MIN / 2, x + BAR_WIDTH, mid + BAR_MIN / 2,
-                    fill=BAR_RECORDING, outline="",
+                canvas.create_line(
+                    x, mid - BAR_MIN / 2, x, mid + BAR_MIN / 2,
+                    width=BAR_WIDTH, capstyle="round", fill=INK,
                 )
             )
 
@@ -141,6 +143,21 @@ class Overlay:
                 root.destroy()
             except Exception:
                 pass
+
+    @staticmethod
+    def _fill_pill(canvas, x0: float, y0: float, x1: float, y1: float, color: str) -> None:  # noqa: ANN001
+        """True stadium shape: semicircular ends + joining rectangle."""
+        h = y1 - y0
+        canvas.create_oval(x0, y0, x0 + h, y1, fill=color, outline=color)
+        canvas.create_oval(x1 - h, y0, x1, y1, fill=color, outline=color)
+        canvas.create_rectangle(x0 + h / 2, y0, x1 - h / 2, y1, fill=color, outline=color)
+
+    def _draw_pill(self, canvas) -> None:  # noqa: ANN001
+        """Light pill with a bold dark outline: a dark pill with a lighter,
+        inset pill on top (crisper than polygon outline strokes)."""
+        self._fill_pill(canvas, 0, 0, WIDTH, HEIGHT, INK)
+        w = OUTLINE_WIDTH
+        self._fill_pill(canvas, w, w, WIDTH - w, HEIGHT - w, PILL_BG)
 
     def _place(self, root) -> None:  # noqa: ANN001
         screen_w = root.winfo_screenwidth()
@@ -168,6 +185,23 @@ class Overlay:
         style = get_style(hwnd, GWL_EXSTYLE)
         set_style(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT)
 
+    def _targets(self, now: float) -> list:
+        """Per-bar target heights for the current state."""
+        if self._state == self.RECORDING:
+            try:
+                level = self._level_provider()
+            except Exception:
+                level = 0.0
+            self._peak = max(self._peak, level)
+            if now - self._last_push >= PUSH_INTERVAL:
+                self._history.append(self._peak)
+                self._peak = 0.0
+                self._last_push = now
+            return [level_to_height(l) for l in self._history]
+        if self._state == self.PROCESSING:
+            return wave_heights(self._phase)
+        return [BAR_MIN] * BAR_COUNT
+
     def _tick(self) -> None:
         root = self._root
         if root is None:
@@ -177,6 +211,12 @@ class Overlay:
             return
 
         state = self._state
+        if state == self.RECORDING and self._prev_state != self.RECORDING:
+            # fresh utterance: start the waveform from a clean slate
+            self._history.extend([0.0] * BAR_COUNT)
+            self._peak = 0.0
+        self._prev_state = state
+
         visible = state != self.HIDDEN
         if visible and not self._shown:
             root.deiconify()
@@ -187,24 +227,18 @@ class Overlay:
             root.withdraw()
             self._shown = False
 
+        now = time.monotonic()
         if self._shown:
-            now = time.monotonic()
             self._phase += now - self._last_tick
-            self._last_tick = now
-
-            level = 0.0
-            if state == self.RECORDING:
-                try:
-                    level = self._level_provider()
-                except Exception:
-                    level = 0.0
-            color = BAR_RECORDING if state == self.RECORDING else BAR_PROCESSING
+            targets = self._targets(now)
+            color = INK if state == self.RECORDING else INK_PROCESSING
             mid = HEIGHT / 2
-            for item, h in zip(self._bars, bar_heights(state, self._phase, level)):
-                x0, _y0, x1, _y1 = self._canvas.coords(item)
-                self._canvas.coords(item, x0, mid - h / 2, x1, mid + h / 2)
+            for i, item in enumerate(self._bars):
+                self._display[i] += (targets[i] - self._display[i]) * SMOOTHING
+                h = max(2.0, self._display[i])
+                x = self._canvas.coords(item)[0]
+                self._canvas.coords(item, x, mid - h / 2, x, mid + h / 2)
                 self._canvas.itemconfig(item, fill=color)
-        else:
-            self._last_tick = time.monotonic()
+        self._last_tick = now
 
         root.after(int(1000 / FPS), self._tick)

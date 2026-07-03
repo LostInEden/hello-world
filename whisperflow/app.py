@@ -209,6 +209,11 @@ class App:
             except Exception as exc:
                 print(f"[tray] disabled ({exc})", flush=True)
 
+        if self.cleaner.enabled:
+            # Load the cleanup model into Ollama in parallel with the Whisper
+            # warm-up, so the first dictation doesn't hit a cold LLM.
+            threading.Thread(target=self.cleaner.warmup, daemon=True, name="ollama-warmup").start()
+
         if self.config["transcription"].get("warmup", True):
             print("[stt] warming up...", flush=True)
             with self._model_lock:
