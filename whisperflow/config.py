@@ -52,6 +52,9 @@ DEFAULTS: Dict[str, Any] = {
         "position": "bottom_center",  # or "top_center"
         "margin": 56,
     },
+    "tray": {
+        "enabled": True,
+    },
 }
 
 
@@ -81,3 +84,26 @@ def load_config(path: str | None = "config.yaml") -> Dict[str, Any]:
         raise ValueError(f"Config file {path!r} must contain a YAML mapping at the top level")
 
     return _deep_merge(DEFAULTS, user_config)
+
+
+def save_override(path: str | None, updates: Dict[str, Any]) -> bool:
+    """Deep-merge ``updates`` into the user's config file on disk.
+
+    Used by the tray menu to persist choices (e.g. the cleanup model).
+    Only the user's overrides are written, never the full defaults.
+    Note: YAML comments in the file are not preserved.
+    """
+    if not path or yaml is None:
+        return False
+
+    existing: Dict[str, Any] = {}
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as handle:
+            loaded = yaml.safe_load(handle) or {}
+        if isinstance(loaded, dict):
+            existing = loaded
+
+    merged = _deep_merge(existing, updates)
+    with open(path, "w", encoding="utf-8") as handle:
+        yaml.safe_dump(merged, handle, sort_keys=False, allow_unicode=True)
+    return True

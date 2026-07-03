@@ -19,6 +19,7 @@ optional "make it sound written" cleanup pass through a small local LLM via
 | Global push-to-talk hotkey (Hold Mode) | ✅ Hold-to-record via a configurable global hotkey (pynput) |
 | System-wide dictation into any app | ✅ Injects text into the focused field (clipboard paste) |
 | Floating status indicator | ✅ On-screen pill: bars dance with your voice while recording, wave animation while processing (tkinter, no extra deps) |
+| Runs as a background app | ✅ System tray icon: pause/resume, switch cleanup model, quit — plus a silent launcher and start-on-login |
 | Local/near-realtime transcription | ✅ faster-whisper on CUDA (`large-v3-turbo` by default) |
 | Voice-activity detection | ✅ Silero VAD (bundled in faster-whisper via `vad_filter`) |
 | AI cleanup: filler removal, punctuation, lists, self-corrections | ✅ Local LLM cleanup pass via Ollama (e.g. `gemma3:4b`) |
@@ -176,6 +177,35 @@ Highlights:
 | Nothing gets typed | Some apps block synthetic paste; try `injection.method: type`. Run the terminal as admin if the hotkey doesn't fire globally |
 | Cleanup does nothing | Ensure `ollama serve` is running and the model is pulled; check `cleanup.enabled: true` |
 | Hotkey not detected in elevated apps | Global hooks can't see keystrokes sent to higher-privilege windows unless this app also runs elevated |
+
+## Running it like a normal app
+
+`python -m whisperflow` always puts an icon in the **system tray** (next to the
+clock). Right-click it to:
+
+- **Pause/resume dictation** — pausing mid-recording finishes that utterance first.
+- **Cleanup model** — pick from the models actually pulled in Ollama, or
+  "Off (raw transcript)". The choice takes effect immediately and is saved to
+  `config.yaml`.
+- **Open config file** / **Quit**.
+
+To launch it **without a terminal window**, double-click `WhisperFlow.bat` —
+it starts the app silently in the background; the tray icon (and the on-screen
+pill while dictating) is the only UI. Quit from the tray menu.
+
+To **start it automatically at login**, create a Startup shortcut (one-time,
+in PowerShell, from the project folder):
+
+```powershell
+$ws = New-Object -ComObject WScript.Shell
+$s = $ws.CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\WhisperFlow.lnk")
+$s.TargetPath = (Get-Command pythonw).Source
+$s.Arguments = "-m whisperflow"
+$s.WorkingDirectory = (Get-Location).Path
+$s.Save()
+```
+
+(Delete that `.lnk` file to undo.)
 
 ## Development
 

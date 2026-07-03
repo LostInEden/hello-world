@@ -17,5 +17,9 @@ requests>=2.31
 # Config file parsing
 PyYAML>=6.0
 
+# System tray icon (+ Pillow to draw it)
+pystray>=0.19.5
+Pillow>=10.0
+
 # --- GPU support (install separately, see README step 3) ---
 # pip install nvidia-cublas-cu12 nvidia-cudnn-cu12

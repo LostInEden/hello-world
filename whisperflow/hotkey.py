@@ -102,6 +102,14 @@ class HotkeyListener:
         """True while any key of the hotkey combo is still held down."""
         return bool(self.target & self._pressed)
 
+    def force_release(self) -> None:
+        """Deactivate as if the combo was released (e.g. when pausing while
+        the user is mid-recording). Safe to call from any thread."""
+        self._combo_satisfied = False
+        if self._active:
+            self._active = False
+            self.on_deactivate()
+
     def _on_press(self, key) -> None:  # noqa: ANN001
         token = _normalize(key)
         if token is None:

@@ -15,17 +15,21 @@ import threading
 import time
 from typing import Any, Dict
 
+from typing import Optional
+
 from .audio import Recorder
 from .cleanup import Cleaner
-from .config import load_config
+from .config import load_config, save_override
 from .hotkey import HotkeyListener
 from .inject import Injector
 from .transcribe import Transcriber
 
 
 class App:
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], config_path: Optional[str] = None):
         self.config = config
+        self.config_path = config_path
+        self.paused = False
         self.recorder = Recorder(
             sample_rate=config["audio"]["sample_rate"],
             device=config["audio"]["device"],
@@ -58,6 +62,47 @@ class App:
     def _set_overlay(self, state: str) -> None:
         if self.overlay is not None:
             self.overlay.set_state(state)
+
+    # --- tray-facing controls (called from the tray thread) ---
+
+    def pause(self, paused: bool) -> None:
+        """Stop reacting to the hotkey without shutting anything down."""
+        self.paused = paused
+        if paused:
+            self.listener.suspend()
+            self.listener.force_release()  # finish any in-progress recording
+            print("⏸️   Dictation paused.", flush=True)
+        else:
+            self.listener.resume()
+            print("▶️   Dictation resumed.", flush=True)
+
+    def list_cleanup_models(self) -> list:
+        return self.cleaner.list_models()
+
+    def set_cleanup_model(self, model: Optional[str]) -> None:
+        """Switch the cleanup model (None disables cleanup); persists to config."""
+        if model:
+            self.cleaner.model = model
+            self.cleaner.enabled = True
+            print(f"🤖  Cleanup model: {model}", flush=True)
+        else:
+            self.cleaner.enabled = False
+            print("🤖  Cleanup disabled (raw transcripts).", flush=True)
+
+        updates: Dict[str, Any] = {"cleanup": {"enabled": self.cleaner.enabled}}
+        if model:
+            updates["cleanup"]["model"] = model
+        try:
+            save_override(self.config_path, updates)
+        except Exception as exc:
+            print(f"[config] could not persist choice ({exc})", flush=True)
+
+    def shutdown(self) -> None:
+        """Stop the app from another thread (tray Quit)."""
+        if self.overlay is not None:
+            self.overlay.close()
+        else:
+            self.listener.stop()
 
     # --- hotkey callbacks (run on the listener thread; keep them quick) ---
 
@@ -133,7 +178,8 @@ class App:
         try:
             self.injector.inject(text)
         finally:
-            self.listener.resume()
+            if not self.paused:  # don't undo a tray-menu pause
+                self.listener.resume()
 
     # --- lifecycle ---
 
@@ -152,6 +198,16 @@ class App:
             )
         print("  Press Ctrl+C here to quit.", flush=True)
         print("=" * 60, flush=True)
+
+        tray = None
+        if self.config.get("tray", {}).get("enabled", True):
+            try:
+                from .tray import Tray
+
+                tray = Tray(self, hotkey_label=combo)
+                tray.start()
+            except Exception as exc:
+                print(f"[tray] disabled ({exc})", flush=True)
 
         if self.config["transcription"].get("warmup", True):
             print("[stt] warming up...", flush=True)
@@ -177,6 +233,8 @@ class App:
         except KeyboardInterrupt:
             print("\nShutting down.", flush=True)
         finally:
+            if tray is not None:
+                tray.stop()
             if self.overlay is not None:
                 self.overlay.close()
             self.listener.stop()
@@ -184,4 +242,4 @@ class App:
 
 def main(config_path: str | None = "config.yaml") -> None:
     config = load_config(config_path)
-    App(config).run()
+    App(config, config_path=config_path).run()

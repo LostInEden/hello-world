@@ -52,6 +52,16 @@ class Cleaner:
         except requests.RequestException:
             return False
 
+    def list_models(self) -> list:
+        """Names of the models currently pulled in Ollama ([] if unreachable)."""
+        try:
+            resp = requests.get(f"{self.host}/api/tags", timeout=3)
+            resp.raise_for_status()
+            models = resp.json().get("models", [])
+            return [m.get("name") for m in models if m.get("name")]
+        except (requests.RequestException, ValueError):
+            return []
+
     def clean(self, text: str) -> str:
         """Return a cleaned-up version of ``text``, or the original on any failure."""
         if not self.enabled or not text:

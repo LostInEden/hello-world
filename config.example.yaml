@@ -89,3 +89,9 @@ overlay:
 
   # Distance from the screen edge, in pixels.
   margin: 56
+
+tray:
+  # System tray icon (next to the clock): pause/resume dictation, switch the
+  # cleanup model (listing whatever is pulled in Ollama), open this config,
+  # and quit. Lets the app run in the background like a normal Windows app.
+  enabled: true
