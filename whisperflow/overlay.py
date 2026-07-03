@@ -23,15 +23,17 @@ from collections import deque
 from typing import Any, Callable, Dict, Optional
 
 BAR_COUNT = 21
-BAR_WIDTH = 3
+BAR_WIDTH = 4
 BAR_GAP = 3
-BAR_MIN = 3.0
+BAR_MIN = 4.0             # == BAR_WIDTH, so silent bars are perfect dots
 BAR_MAX = 26.0
 WIDTH = 200
 HEIGHT = 48
 FPS = 60
 SMOOTHING = 0.35          # per-frame lerp factor toward target heights
 PUSH_INTERVAL = 0.05      # seconds between waveform scroll steps
+SS = 3                    # supersampling factor: tkinter can't antialias, so
+                          # frames are drawn 3x with Pillow and downscaled
 
 # Color key treated as fully transparent on Windows (gives the pill its
 # rounded shape). On platforms without -transparentcolor it's just a border.
@@ -59,6 +61,36 @@ def wave_heights(phase: float, count: int = BAR_COUNT) -> list:
         w = 0.5 * (1.0 + math.sin(phase * 5.0 - i * 0.55))
         heights.append(BAR_MIN + (BAR_MAX - BAR_MIN) * 0.45 * w)
     return heights
+
+
+def render_frame(bar_pixel_heights: list, bar_color: str):
+    """Draw one antialiased frame (a PIL Image): the outlined pill plus the
+    waveform bars, supersampled at ``SS``x and LANCZOS-downscaled so edges and
+    the bars' rounded ends come out smooth despite tkinter's aliased canvas.
+    """
+    from PIL import Image, ImageDraw
+
+    w, h = WIDTH * SS, HEIGHT * SS
+    img = Image.new("RGB", (w, h), TRANSPARENT)
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle([0, 0, w - 1, h - 1], radius=h // 2, fill=INK)
+    o = OUTLINE_WIDTH * SS
+    draw.rounded_rectangle(
+        [o, o, w - 1 - o, h - 1 - o], radius=(h - 2 * o) // 2, fill=PILL_BG
+    )
+
+    total = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
+    x0 = (WIDTH - total) / 2
+    mid = HEIGHT / 2
+    for i, bh in enumerate(bar_pixel_heights):
+        bh = max(float(BAR_WIDTH), float(bh))  # never thinner than a dot
+        x = (x0 + i * (BAR_WIDTH + BAR_GAP)) * SS
+        draw.rounded_rectangle(
+            [x, (mid - bh / 2) * SS, x + BAR_WIDTH * SS, (mid + bh / 2) * SS],
+            radius=BAR_WIDTH * SS / 2,
+            fill=bar_color,
+        )
+    return img.resize((WIDTH, HEIGHT), Image.LANCZOS)
 
 
 class Overlay:
@@ -113,21 +145,7 @@ class Overlay:
         )
         canvas.pack()
         self._canvas = canvas
-
-        self._draw_pill(canvas)
-
-        total = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
-        x0 = (WIDTH - total) / 2 + BAR_WIDTH / 2
-        mid = HEIGHT / 2
-        self._bars = []
-        for i in range(BAR_COUNT):
-            x = x0 + i * (BAR_WIDTH + BAR_GAP)
-            self._bars.append(
-                canvas.create_line(
-                    x, mid - BAR_MIN / 2, x, mid + BAR_MIN / 2,
-                    width=BAR_WIDTH, capstyle="round", fill=INK,
-                )
-            )
+        self._image_item = canvas.create_image(0, 0, anchor="nw")
 
         self._place(root)
         self._suppress_focus(root)
@@ -143,21 +161,6 @@ class Overlay:
                 root.destroy()
             except Exception:
                 pass
-
-    @staticmethod
-    def _fill_pill(canvas, x0: float, y0: float, x1: float, y1: float, color: str) -> None:  # noqa: ANN001
-        """True stadium shape: semicircular ends + joining rectangle."""
-        h = y1 - y0
-        canvas.create_oval(x0, y0, x0 + h, y1, fill=color, outline=color)
-        canvas.create_oval(x1 - h, y0, x1, y1, fill=color, outline=color)
-        canvas.create_rectangle(x0 + h / 2, y0, x1 - h / 2, y1, fill=color, outline=color)
-
-    def _draw_pill(self, canvas) -> None:  # noqa: ANN001
-        """Light pill with a bold dark outline: a dark pill with a lighter,
-        inset pill on top (crisper than polygon outline strokes)."""
-        self._fill_pill(canvas, 0, 0, WIDTH, HEIGHT, INK)
-        w = OUTLINE_WIDTH
-        self._fill_pill(canvas, w, w, WIDTH - w, HEIGHT - w, PILL_BG)
 
     def _place(self, root) -> None:  # noqa: ANN001
         screen_w = root.winfo_screenwidth()
@@ -229,16 +232,16 @@ class Overlay:
 
         now = time.monotonic()
         if self._shown:
+            from PIL import ImageTk
+
             self._phase += now - self._last_tick
             targets = self._targets(now)
-            color = INK if state == self.RECORDING else INK_PROCESSING
-            mid = HEIGHT / 2
-            for i, item in enumerate(self._bars):
+            for i in range(BAR_COUNT):
                 self._display[i] += (targets[i] - self._display[i]) * SMOOTHING
-                h = max(2.0, self._display[i])
-                x = self._canvas.coords(item)[0]
-                self._canvas.coords(item, x, mid - h / 2, x, mid + h / 2)
-                self._canvas.itemconfig(item, fill=color)
+            color = INK if state == self.RECORDING else INK_PROCESSING
+            # keep a reference on self: Tk only borrows the image
+            self._photo = ImageTk.PhotoImage(render_frame(self._display, color))
+            self._canvas.itemconfig(self._image_item, image=self._photo)
         self._last_tick = now
 
         root.after(int(1000 / FPS), self._tick)

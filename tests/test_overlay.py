@@ -1,11 +1,19 @@
 """Overlay animation math and state plumbing (no display needed)."""
 
+import pytest
+
 from whisperflow.overlay import (
     BAR_COUNT,
     BAR_MAX,
     BAR_MIN,
+    HEIGHT,
+    INK,
+    PILL_BG,
+    TRANSPARENT,
+    WIDTH,
     Overlay,
     level_to_height,
+    render_frame,
     wave_heights,
 )
 
@@ -60,6 +68,35 @@ def test_recording_targets_hold_between_pushes():
 def test_hidden_targets_are_flat():
     overlay = Overlay({})
     assert overlay._targets(0.0) == [BAR_MIN] * BAR_COUNT
+
+
+def test_render_frame_geometry_and_colors():
+    pytest.importorskip("PIL")
+
+    def rgb(hex_color):
+        return tuple(int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+
+    img = render_frame([BAR_MIN] * BAR_COUNT, INK)
+    assert img.size == (WIDTH, HEIGHT)
+    # corners are outside the pill -> the transparency key color
+    assert img.getpixel((0, 0)) == rgb(TRANSPARENT)
+    assert img.getpixel((WIDTH - 1, HEIGHT - 1)) == rgb(TRANSPARENT)
+    # pill interior (between border and first bar) is the light background
+    assert img.getpixel((16, HEIGHT // 2)) == rgb(PILL_BG)
+    # the vertical center of the pill's left edge is border ink (allow a
+    # little antialiasing blend toward the key color)
+    edge = img.getpixel((0, HEIGHT // 2))
+    assert all(abs(a - b) <= 10 for a, b in zip(edge, rgb(INK)))
+
+
+def test_render_frame_bars_grow_with_height():
+    pytest.importorskip("PIL")
+    flat = render_frame([BAR_MIN] * BAR_COUNT, INK)
+    tall = render_frame([BAR_MAX] * BAR_COUNT, INK)
+    # a pixel above the midline inside the bar area: background when flat, ink when tall
+    x = WIDTH // 2
+    y = HEIGHT // 2 - 8
+    assert flat.getpixel((x, y)) != tall.getpixel((x, y))
 
 
 def test_set_state_and_close_are_plain_flags():

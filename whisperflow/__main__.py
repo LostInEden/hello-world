@@ -197,7 +197,23 @@ def _cmd_bench(config_path: str | None, wav_path: str | None) -> int:
     return 0
 
 
+def _ensure_output_sink() -> None:
+    """Under pythonw (WhisperFlow.bat) there is no console, so print() is a
+    silent no-op. Route output to whisperflow.log instead, so timings and
+    transcripts stay inspectable."""
+    if sys.stdout is None or sys.stderr is None:
+        try:
+            log = open("whisperflow.log", "a", encoding="utf-8", buffering=1)
+            if sys.stdout is None:
+                sys.stdout = log
+            if sys.stderr is None:
+                sys.stderr = log
+        except OSError:
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _ensure_output_sink()
     parser = argparse.ArgumentParser(prog="whisperflow", description="Local Wispr Flow clone")
     parser.add_argument("command", nargs="?", default="run", choices=["run", "doctor", "devices", "bench"])
     parser.add_argument("--config", default="config.yaml", help="path to config YAML")
