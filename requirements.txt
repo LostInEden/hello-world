@@ -1,0 +1,21 @@
+# Core speech-to-text engine (bundles CTranslate2 + Silero VAD via onnxruntime)
+faster-whisper>=1.1.0
+
+# Audio capture from the microphone
+sounddevice>=0.4.6
+numpy>=1.24
+
+# Global hotkey handling + synthetic keystrokes for text injection
+pynput>=1.7.6
+
+# Clipboard read/write for paste-based injection
+pyperclip>=1.8.2
+
+# HTTP client for the local Ollama cleanup call
+requests>=2.31
+
+# Config file parsing
+PyYAML>=6.0
+
+# --- GPU support (install separately, see README step 3) ---
+# pip install nvidia-cublas-cu12 nvidia-cudnn-cu12

@@ -1,0 +1,72 @@
+# whisperflow-local configuration
+# Copy this file to `config.yaml` and edit. Any key you omit falls back to the
+# defaults baked into whisperflow/config.py.
+
+hotkey:
+  # The global push-to-talk shortcut. Examples:
+  #   "ctrl+alt"          -> hold both (default; modifier-only combos avoid conflicts)
+  #   "ctrl+shift+space"  -> hold all three
+  #   "f9"                -> a single key
+  combo: "ctrl+alt"
+
+  # "push_to_talk" = hold the combo to record, release to transcribe.
+  # "toggle"       = press once to start recording, press again to stop.
+  mode: "push_to_talk"
+
+audio:
+  # Microphone sample rate. Whisper expects 16 kHz; leave this unless you know better.
+  sample_rate: 16000
+  # Input device index (from `python -m whisperflow devices`). null = system default.
+  device: null
+
+transcription:
+  # Model to load. Recommended for a dedicated NVIDIA GPU:
+  #   large-v3-turbo  -> fast + accurate (default, best all-rounder)
+  #   large-v3        -> most accurate, a bit slower
+  #   distil-large-v3 -> English-only, faster/smaller
+  #   medium / small  -> lower VRAM machines
+  model: "large-v3-turbo"
+
+  # "cuda" to use the GPU, "cpu" to force CPU, "auto" to pick automatically.
+  device: "cuda"
+
+  # Precision. "float16" is the GPU default. Use "int8_float16" or "int8" to cut VRAM.
+  compute_type: "float16"
+
+  # null = auto-detect language. Set e.g. "en" to lock it (faster, avoids misdetection).
+  language: "en"
+
+  # Beam search width. 5 is Whisper's default; 1 is greedy (faster, slightly less accurate).
+  beam_size: 5
+
+  # Use Silero VAD (bundled in faster-whisper) to strip silence before transcription.
+  vad_filter: true
+
+cleanup:
+  # Turn the local-LLM "make it sound written" pass on/off.
+  # When false (or Ollama is unreachable), you get the raw transcript.
+  enabled: true
+
+  # Ollama server URL. Default matches a local `ollama serve`.
+  host: "http://localhost:11434"
+
+  # Any pulled Ollama model. Small models are plenty for cleanup:
+  #   gemma3:4b (default), qwen2.5:3b, llama3.1:8b, phi3.5
+  model: "gemma3:4b"
+
+  # Skip cleanup for very short utterances (raw text is returned instead).
+  min_chars: 40
+
+  # Seconds to wait for the LLM before falling back to the raw transcript.
+  timeout: 20
+
+  # Sampling temperature for the cleanup model. Low = faithful, deterministic.
+  temperature: 0.2
+
+injection:
+  # "paste" = copy to clipboard + send Ctrl+V (fast, reliable in most apps).
+  # "type"  = simulate individual keystrokes (works where paste is blocked, slower).
+  method: "paste"
+
+  # For "paste": restore the previous clipboard contents afterwards.
+  restore_clipboard: true

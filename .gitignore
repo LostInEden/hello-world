@@ -1,0 +1,25 @@
+# Local config (copy config.example.yaml -> config.yaml)
+config.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Downloaded model caches
+.cache/
+models/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
