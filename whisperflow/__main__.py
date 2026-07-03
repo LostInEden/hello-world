@@ -46,6 +46,21 @@ def _cmd_doctor(config_path: str | None) -> int:
         cuda_count = ctranslate2.get_cuda_device_count()
         if cuda_count > 0:
             print(f"[ok] CUDA devices visible to CTranslate2: {cuda_count}")
+            # Seeing the device is not enough: inference also needs the cuBLAS
+            # and cuDNN DLLs, which live in the pip nvidia-* packages on Windows.
+            if sys.platform == "win32":
+                import ctypes
+
+                from . import transcribe  # noqa: F401 - registers pip CUDA DLL dirs
+
+                for dll in ("cublas64_12.dll", "cudnn64_9.dll"):
+                    try:
+                        ctypes.WinDLL(dll)
+                        print(f"[ok] {dll} loadable")
+                    except OSError:
+                        ok = False
+                        print(f"[!!] {dll} not loadable — GPU inference will fail.")
+                        print("     Install: pip install nvidia-cublas-cu12 nvidia-cudnn-cu12")
         else:
             ok = False
             print("[!!] CTranslate2 sees 0 CUDA devices — transcription will run on CPU.")

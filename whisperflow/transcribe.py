@@ -6,9 +6,56 @@ by passing ``vad_filter=True`` — no separate VAD dependency required.
 
 from __future__ import annotations
 
+import os
+import sys
 from typing import Any, Dict
 
 import numpy as np
+
+
+def _ensure_windows_cuda_dlls() -> None:
+    """Make the pip-installed NVIDIA CUDA DLLs findable on Windows.
+
+    ``pip install nvidia-cublas-cu12 nvidia-cudnn-cu12`` drops the DLLs into
+    ``site-packages/nvidia/<pkg>/bin``, which is not on the default DLL search
+    path — CTranslate2 then loads the model fine but fails at inference time
+    with e.g. "Library cublas64_12.dll is not found". Register those
+    directories before faster-whisper runs.
+    """
+    if sys.platform != "win32":
+        return
+    import site
+
+    roots = []
+    try:
+        roots.extend(site.getsitepackages())
+    except Exception:
+        pass
+    try:
+        roots.append(site.getusersitepackages())
+    except Exception:
+        pass
+
+    add_dll_directory = getattr(os, "add_dll_directory", None)
+    for root in roots:
+        nvidia = os.path.join(root, "nvidia")
+        if not os.path.isdir(nvidia):
+            continue
+        for pkg in os.listdir(nvidia):
+            bin_dir = os.path.join(nvidia, pkg, "bin")
+            if not os.path.isdir(bin_dir):
+                continue
+            # PATH covers CTranslate2's runtime LoadLibrary calls;
+            # add_dll_directory covers extension-module dependencies.
+            os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+            if add_dll_directory is not None:
+                try:
+                    add_dll_directory(bin_dir)
+                except OSError:
+                    pass
+
+
+_ensure_windows_cuda_dlls()
 
 
 class Transcriber:
