@@ -69,7 +69,11 @@ class Cleaner:
 
     def __init__(self, config: Dict[str, Any]):
         self.enabled = bool(config.get("enabled", True))
-        self.host = config.get("host", "http://localhost:11434").rstrip("/")
+        self.host = config.get("host", "http://127.0.0.1:11434").rstrip("/")
+        # On Windows, "localhost" can cost ~2s per request: it resolves to
+        # IPv6 ::1 first, but Ollama listens on IPv4, and the fallback is
+        # slow. Connect straight to the IPv4 loopback instead.
+        self.host = self.host.replace("://localhost", "://127.0.0.1")
         self.model = config.get("model", "gemma3:4b")
         self.min_chars = int(config.get("min_chars", 40))
         self.timeout = float(config.get("timeout", 20))

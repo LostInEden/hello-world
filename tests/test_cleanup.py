@@ -42,6 +42,14 @@ def test_clean_happy_path():
         assert payload["options"]["num_ctx"] == 2048
 
 
+def test_localhost_is_rewritten_to_ipv4_loopback():
+    # "localhost" resolves IPv6-first on Windows and costs ~2s per request
+    cleaner = Cleaner({**CONFIG, "host": "http://localhost:11434"})
+    assert cleaner.host == "http://127.0.0.1:11434"
+    cleaner = Cleaner({**CONFIG, "host": "http://192.168.1.50:11434"})
+    assert cleaner.host == "http://192.168.1.50:11434"  # non-localhost untouched
+
+
 def test_ollama_down_returns_raw_text():
     cleaner = Cleaner(CONFIG)
     with mock.patch(

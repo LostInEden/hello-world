@@ -51,7 +51,9 @@ cleanup:
   enabled: true
 
   # Ollama server URL. Default matches a local `ollama serve`.
-  host: "http://localhost:11434"
+  # Use 127.0.0.1 rather than "localhost": on Windows, localhost resolves
+  # IPv6-first and costs ~2 seconds per request ("localhost" is auto-corrected).
+  host: "http://127.0.0.1:11434"
 
   # Any pulled Ollama model. Small models are plenty for cleanup:
   #   gemma3:4b (default), qwen2.5:3b, llama3.1:8b, phi3.5

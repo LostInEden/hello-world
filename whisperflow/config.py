@@ -36,7 +36,9 @@ DEFAULTS: Dict[str, Any] = {
     },
     "cleanup": {
         "enabled": True,
-        "host": "http://localhost:11434",
+        # IPv4 loopback on purpose: "localhost" costs ~2s/request on Windows
+        # (IPv6-first resolution while Ollama listens on IPv4).
+        "host": "http://127.0.0.1:11434",
         "model": "gemma3:4b",
         "min_chars": 40,
         "timeout": 20,
