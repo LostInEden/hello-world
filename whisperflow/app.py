@@ -79,6 +79,22 @@ class App:
     def list_cleanup_models(self) -> list:
         return self.cleaner.list_models()
 
+    def set_hotkey_mode(self, mode: str) -> None:
+        """Switch between "push_to_talk" (hold) and "toggle" (press to start,
+        press again to stop); persists to config."""
+        if mode not in ("push_to_talk", "toggle"):
+            return
+        # Finish any in-progress recording under the old semantics, so a
+        # mid-recording switch can't leave the mic running with no way out.
+        self.listener.force_release()
+        self.listener.mode = mode
+        verb = "hold" if mode == "push_to_talk" else "press to start/stop"
+        print(f"⌨️   Hotkey mode: {mode} ({verb}).", flush=True)
+        try:
+            save_override(self.config_path, {"hotkey": {"mode": mode}})
+        except Exception as exc:
+            print(f"[config] could not persist choice ({exc})", flush=True)
+
     def set_cleanup_model(self, model: Optional[str]) -> None:
         """Switch the cleanup model (None disables cleanup); persists to config."""
         if model:

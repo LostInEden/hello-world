@@ -67,17 +67,42 @@ class Tray:
         for name in models:
             yield pystray.MenuItem(name, select(name), radio=True, checked=is_current(name))
 
+    def _mode_items(self):
+        import pystray
+
+        listener = self.app.listener
+
+        def select(mode):  # noqa: ANN001
+            def handler(icon, item):  # noqa: ANN001
+                self.app.set_hotkey_mode(mode)
+
+            return handler
+
+        def is_current(mode):  # noqa: ANN001
+            def check(item):  # noqa: ANN001
+                return listener.mode == mode
+
+            return check
+
+        yield pystray.MenuItem(
+            "Hold to talk", select("push_to_talk"), radio=True, checked=is_current("push_to_talk")
+        )
+        yield pystray.MenuItem(
+            "Press to start/stop", select("toggle"), radio=True, checked=is_current("toggle")
+        )
+
     def _menu(self):
         import pystray
 
         return pystray.Menu(
-            pystray.MenuItem(f"WhisperFlow — hold {self.hotkey_label} to dictate", None, enabled=False),
+            pystray.MenuItem(f"WhisperFlow — {self.hotkey_label} to dictate", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
                 "Pause dictation",
                 lambda icon, item: self.app.pause(not self.app.paused),
                 checked=lambda item: self.app.paused,
             ),
+            pystray.MenuItem("Hotkey mode", pystray.Menu(self._mode_items)),
             pystray.MenuItem("Cleanup model", pystray.Menu(self._model_items)),
             pystray.MenuItem("Open config file", lambda icon, item: self._open_config()),
             pystray.Menu.SEPARATOR,

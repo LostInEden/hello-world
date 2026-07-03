@@ -16,7 +16,13 @@ pytest.importorskip("sounddevice")
 import whisperflow.app as app_module  # noqa: E402
 from whisperflow.config import load_config, save_override  # noqa: E402
 
-from .test_app import FakeCleaner, FakeInjector, FakeRecorder, FakeTranscriber  # noqa: E402
+from .test_app import (  # noqa: E402
+    FakeCleaner,
+    FakeInjector,
+    FakeRecorder,
+    FakeTranscriber,
+    _wait_for,
+)
 
 
 @pytest.fixture
@@ -91,6 +97,60 @@ def test_save_override_merges_with_existing_file(tmp_path):
 
 def test_save_override_without_path_is_noop():
     assert save_override(None, {"a": 1}) is False
+
+
+def test_set_hotkey_mode_switches_and_persists(app):
+    app.set_hotkey_mode("toggle")
+    assert app.listener.mode == "toggle"
+    saved = yaml.safe_load(open(app.config_path))
+    assert saved["hotkey"]["mode"] == "toggle"
+    app.set_hotkey_mode("push_to_talk")
+    assert app.listener.mode == "push_to_talk"
+
+
+def test_set_hotkey_mode_rejects_unknown(app):
+    app.set_hotkey_mode("bogus")
+    assert app.listener.mode == "push_to_talk"  # unchanged
+
+
+def test_set_hotkey_mode_mid_recording_finishes_utterance(app):
+    app._on_start()
+    app.listener._active = True  # combo currently engaged
+    app.set_hotkey_mode("toggle")
+    assert not app.recorder.recording  # recording was stopped, not orphaned
+    assert _wait_for(lambda: app.injector.injected)
+
+
+def test_toggle_mode_full_cycle_through_listener(app):
+    """Press ctrl+alt to start, release, press again to stop and process."""
+    from pynput import keyboard
+
+    app.set_hotkey_mode("toggle")
+    app.listener._on_press(keyboard.Key.ctrl_l)
+    app.listener._on_press(keyboard.Key.alt_l)
+    assert app.recorder.recording
+    app.listener._on_release(keyboard.Key.alt_l)
+    app.listener._on_release(keyboard.Key.ctrl_l)
+    assert app.recorder.recording  # still recording after release
+    app.listener._on_press(keyboard.Key.ctrl_l)
+    app.listener._on_press(keyboard.Key.alt_l)
+    assert not app.recorder.recording  # second press stopped it
+    app.listener._on_release(keyboard.Key.alt_l)
+    app.listener._on_release(keyboard.Key.ctrl_l)
+    assert _wait_for(lambda: app.injector.injected)
+
+
+def test_tray_mode_menu(app):
+    pytest.importorskip("pystray")
+    from whisperflow.tray import Tray
+
+    tray = Tray(app, hotkey_label="ctrl+alt")
+    items = list(tray._mode_items())
+    assert [str(i.text) for i in items] == ["Hold to talk", "Press to start/stop"]
+    assert items[0].checked and not items[1].checked
+    app.set_hotkey_mode("toggle")
+    items = list(tray._mode_items())
+    assert items[1].checked and not items[0].checked
 
 
 def test_shutdown_closes_overlay(app):
