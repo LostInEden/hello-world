@@ -42,6 +42,7 @@ DEFAULTS: Dict[str, Any] = {
         "timeout": 20,
         "temperature": 0.2,
         "keep_alive": "10m",
+        "num_ctx": 2048,
     },
     "injection": {
         "method": "paste",  # or "type"

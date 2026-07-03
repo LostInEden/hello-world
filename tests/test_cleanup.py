@@ -15,6 +15,7 @@ CONFIG = {
     "timeout": 5,
     "temperature": 0.2,
     "keep_alive": "10m",
+    "num_ctx": 2048,
 }
 
 LONG_RAW = "um so I think we should uh meet on Monday no wait Tuesday okay"
@@ -38,6 +39,7 @@ def test_clean_happy_path():
         assert LONG_RAW in payload["prompt"]  # transcript embedded in the template
         assert payload["stream"] is False
         assert payload["keep_alive"] == "10m"
+        assert payload["options"]["num_ctx"] == 2048
 
 
 def test_ollama_down_returns_raw_text():
@@ -139,6 +141,8 @@ def test_warmup_asks_ollama_to_load_the_model():
         assert payload["model"] == "gemma3:4b"
         assert payload["prompt"] == ""  # empty prompt = load only
         assert payload["keep_alive"] == "10m"
+        # must match clean()'s options or Ollama restarts the runner
+        assert payload["options"]["num_ctx"] == 2048
 
 
 def test_warmup_survives_ollama_down():

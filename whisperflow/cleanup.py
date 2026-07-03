@@ -77,6 +77,9 @@ class Cleaner:
         # How long Ollama keeps the model loaded after a request. Keeping it
         # resident between utterances is what makes cleanup feel instant.
         self.keep_alive = config.get("keep_alive", "10m")
+        # Context window to request. Ollama's default can be 32k+, which
+        # wastes VRAM and slows consumer GPUs; dictation cleanup needs little.
+        self.num_ctx = int(config.get("num_ctx", 2048))
 
     def is_available(self) -> bool:
         """Return True if the Ollama server responds."""
@@ -99,6 +102,9 @@ class Cleaner:
                     "prompt": "",
                     "stream": False,
                     "keep_alive": self.keep_alive,
+                    # Must match clean()'s options: a num_ctx mismatch makes
+                    # Ollama restart the model runner on the next request.
+                    "options": {"temperature": self.temperature, "num_ctx": self.num_ctx},
                 },
                 timeout=max(self.timeout, 60),
             )
@@ -131,7 +137,7 @@ class Cleaner:
                     "prompt": PROMPT_TEMPLATE.format(text=text),
                     "stream": False,
                     "keep_alive": self.keep_alive,
-                    "options": {"temperature": self.temperature},
+                    "options": {"temperature": self.temperature, "num_ctx": self.num_ctx},
                 },
                 timeout=self.timeout,
             )

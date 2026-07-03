@@ -70,6 +70,10 @@ cleanup:
   # Keeping it resident between utterances is what keeps cleanup latency low.
   keep_alive: "10m"
 
+  # Context window to request from Ollama. Its default can be 32k+, which
+  # wastes VRAM and slows cleanup on consumer GPUs. 2048 is plenty here.
+  num_ctx: 2048
+
 injection:
   # "paste" = copy to clipboard + send Ctrl+V (fast, reliable in most apps).
   # "type"  = simulate individual keystrokes (works where paste is blocked, slower).
