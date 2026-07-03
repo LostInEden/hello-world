@@ -108,6 +108,16 @@ List your microphones if you need to pick a specific one:
 python -m whisperflow devices
 ```
 
+Benchmark the pipeline — this loads the model with your config, confirms it
+actually landed on the GPU (checks VRAM via `nvidia-smi`, not just logs), and
+measures STT + cleanup latency:
+
+```powershell
+python -m whisperflow bench
+# or, with a real recording for a realistic number:
+python -m whisperflow bench --wav my_speech.wav
+```
+
 Start dictating:
 
 ```powershell
@@ -120,6 +130,11 @@ Then, in **any** application:
 2. **Hold** the hotkey (default: **Ctrl + Alt**) and speak.
 3. **Release** the hotkey.
 4. Your cleaned-up text is typed at the cursor.
+
+After every utterance the terminal prints a latency breakdown, e.g.
+`⏱️ 0.84s release-to-text (stt 0.52s, cleanup 0.29s, inject 0.03s)`. If you're
+over ~1s for short utterances, try `compute_type: int8_float16` or a smaller
+cleanup model (`qwen2.5:3b`) — STT and the LLM share VRAM.
 
 Press **Ctrl + C** in the terminal to quit.
 
@@ -155,6 +170,15 @@ Highlights:
 | Nothing gets typed | Some apps block synthetic paste; try `injection.method: type`. Run the terminal as admin if the hotkey doesn't fire globally |
 | Cleanup does nothing | Ensure `ollama serve` is running and the model is pulled; check `cleanup.enabled: true` |
 | Hotkey not detected in elevated apps | Global hooks can't see keystrokes sent to higher-privilege windows unless this app also runs elevated |
+
+## Development
+
+The test suite mocks the model, audio, and Ollama, so it runs anywhere:
+
+```powershell
+pip install pytest
+python -m pytest tests/
+```
 
 ## License
 

@@ -84,13 +84,31 @@ class HotkeyListener:
         self._pressed: Set[str] = set()
         self._combo_satisfied = False
         self._active = False
+        self._suspended = False
         self._listener: Optional[keyboard.Listener] = None
+
+    # -- suspension: keeps our own synthetic keystrokes (Ctrl+V paste, typed
+    #    text) from being interpreted as hotkey activity during injection.
+    #    Key state is still tracked so physical holds don't desync. --
+
+    def suspend(self) -> None:
+        """Stop firing activate/deactivate callbacks until resume()."""
+        self._suspended = True
+
+    def resume(self) -> None:
+        self._suspended = False
+
+    def target_down(self) -> bool:
+        """True while any key of the hotkey combo is still held down."""
+        return bool(self.target & self._pressed)
 
     def _on_press(self, key) -> None:  # noqa: ANN001
         token = _normalize(key)
         if token is None:
             return
         self._pressed.add(token)
+        if self._suspended:
+            return
 
         if self.target.issubset(self._pressed) and not self._combo_satisfied:
             self._combo_satisfied = True
@@ -107,6 +125,8 @@ class HotkeyListener:
         if token is None:
             return
         self._pressed.discard(token)
+        if self._suspended:
+            return
 
         if not self.target.issubset(self._pressed):
             self._combo_satisfied = False

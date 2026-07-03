@@ -42,6 +42,9 @@ transcription:
   # Use Silero VAD (bundled in faster-whisper) to strip silence before transcription.
   vad_filter: true
 
+  # Run a throwaway decode at startup so the first real utterance isn't slow.
+  warmup: true
+
 cleanup:
   # Turn the local-LLM "make it sound written" pass on/off.
   # When false (or Ollama is unreachable), you get the raw transcript.
@@ -62,6 +65,10 @@ cleanup:
 
   # Sampling temperature for the cleanup model. Low = faithful, deterministic.
   temperature: 0.2
+
+  # How long Ollama keeps the model loaded after each request ("10m", "1h", -1 = forever).
+  # Keeping it resident between utterances is what keeps cleanup latency low.
+  keep_alive: "10m"
 
 injection:
   # "paste" = copy to clipboard + send Ctrl+V (fast, reliable in most apps).

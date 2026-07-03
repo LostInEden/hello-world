@@ -40,6 +40,9 @@ class Cleaner:
         self.min_chars = int(config.get("min_chars", 40))
         self.timeout = float(config.get("timeout", 20))
         self.temperature = float(config.get("temperature", 0.2))
+        # How long Ollama keeps the model loaded after a request. Keeping it
+        # resident between utterances is what makes cleanup feel instant.
+        self.keep_alive = config.get("keep_alive", "10m")
 
     def is_available(self) -> bool:
         """Return True if the Ollama server responds."""
@@ -64,6 +67,7 @@ class Cleaner:
                     "system": SYSTEM_PROMPT,
                     "prompt": text,
                     "stream": False,
+                    "keep_alive": self.keep_alive,
                     "options": {"temperature": self.temperature},
                 },
                 timeout=self.timeout,

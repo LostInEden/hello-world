@@ -32,6 +32,7 @@ DEFAULTS: Dict[str, Any] = {
         "language": "en",
         "beam_size": 5,
         "vad_filter": True,
+        "warmup": True,
     },
     "cleanup": {
         "enabled": True,
@@ -40,6 +41,7 @@ DEFAULTS: Dict[str, Any] = {
         "min_chars": 40,
         "timeout": 20,
         "temperature": 0.2,
+        "keep_alive": "10m",
     },
     "injection": {
         "method": "paste",  # or "type"

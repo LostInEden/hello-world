@@ -29,17 +29,42 @@ class Transcriber:
         print(f"[stt] loading {self.model_name} on {device} ({compute_type})...", flush=True)
         try:
             self.model = WhisperModel(self.model_name, device=device, compute_type=compute_type)
+            self.device_used = device
+            self.compute_type_used = compute_type
         except Exception as exc:  # pragma: no cover - environment dependent
-            if device == "cuda":
-                print(
-                    f"[stt] failed to load on CUDA ({exc}); falling back to CPU int8. "
-                    "Run `python -m whisperflow doctor` to diagnose GPU setup.",
-                    flush=True,
-                )
-                self.model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
-            else:
+            if device != "cuda":
                 raise
-        print("[stt] model ready.", flush=True)
+            print(
+                f"[stt] failed to load on CUDA ({exc}); falling back to CPU int8. "
+                "Run `python -m whisperflow doctor` to diagnose GPU setup.",
+                flush=True,
+            )
+            try:
+                self.model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
+            except Exception as cpu_exc:
+                raise RuntimeError(
+                    f"Could not load Whisper model {self.model_name!r} on CUDA or on CPU. "
+                    f"CUDA error: {exc}. CPU error: {cpu_exc}. "
+                    "If both mention downloads or network, the model files could not be "
+                    "fetched — check your connection or pre-download the model."
+                ) from cpu_exc
+            self.device_used = "cpu"
+            self.compute_type_used = "int8"
+        print(f"[stt] model ready on {self.device_used} ({self.compute_type_used}).", flush=True)
+
+    def warmup(self) -> None:
+        """Run a throwaway decode so the first real utterance isn't slow.
+
+        Uses low-amplitude noise with VAD off: pure silence plus the VAD filter
+        would skip the decode entirely and warm nothing up.
+        """
+        rng = np.random.default_rng(0)
+        noise = (rng.standard_normal(16000) * 0.005).astype(np.float32)
+        segments, _info = self.model.transcribe(
+            noise, language=self.language, beam_size=1, vad_filter=False
+        )
+        for _segment in segments:
+            pass
 
     def transcribe(self, audio: np.ndarray) -> str:
         """Transcribe a 1-D float32 16 kHz audio array into text."""

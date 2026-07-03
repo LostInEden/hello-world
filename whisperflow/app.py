@@ -12,6 +12,7 @@ and a lock serializes access to the Whisper model.
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any, Dict
 
 from .audio import Recorder
@@ -50,33 +51,60 @@ class App:
         self.recorder.start()
 
     def _on_stop(self) -> None:
+        released_at = time.perf_counter()
         audio = self.recorder.stop()
         seconds = self.recorder.duration(audio)
         if seconds < self._min_seconds:
             print("⏹️  Too short, ignored.", flush=True)
             return
         print(f"⏹️  Captured {seconds:.1f}s, processing...", flush=True)
-        threading.Thread(target=self._process, args=(audio,), daemon=True).start()
+        threading.Thread(target=self._process, args=(audio, released_at), daemon=True).start()
 
     # --- heavy lifting (worker thread) ---
 
-    def _process(self, audio) -> None:  # noqa: ANN001
+    def _process(self, audio, released_at: float) -> None:  # noqa: ANN001
         with self._model_lock:
-            print("📝  Transcribing...", flush=True)
             raw = self.transcriber.transcribe(audio)
+            stt_done = time.perf_counter()
             if not raw:
                 print("🤷  No speech detected.", flush=True)
                 return
             print(f"    raw: {raw}", flush=True)
 
             if self.cleaner.enabled:
-                print("🤖  Cleaning up...", flush=True)
                 final = self.cleaner.clean(raw)
             else:
                 final = raw
+            clean_done = time.perf_counter()
 
         print(f"⌨️   Inserting: {final}", flush=True)
-        self.injector.inject(final)
+        self._inject_safely(final)
+        done = time.perf_counter()
+
+        print(
+            f"⏱️   {done - released_at:.2f}s release-to-text "
+            f"(stt {stt_done - released_at:.2f}s, "
+            f"cleanup {clean_done - stt_done:.2f}s, "
+            f"inject {done - clean_done:.2f}s)",
+            flush=True,
+        )
+
+    def _inject_safely(self, text: str) -> None:
+        """Inject text once the hotkey is physically released, with the
+        listener suspended so our own synthetic keystrokes don't re-trigger it.
+
+        Without the wait, a fast transcription can race the user's fingers:
+        Ctrl+V lands while Alt is still held and the target app sees Ctrl+Alt+V.
+        """
+        deadline = time.time() + 2.0
+        while self.listener.target_down() and time.time() < deadline:
+            time.sleep(0.02)
+
+        self.listener.suspend()
+        try:
+            self.injector.inject(text)
+        finally:
+            self.listener.resume()
 
     # --- lifecycle ---
 
@@ -95,6 +123,12 @@ class App:
             )
         print("  Press Ctrl+C here to quit.", flush=True)
         print("=" * 60, flush=True)
+
+        if self.config["transcription"].get("warmup", True):
+            print("[stt] warming up...", flush=True)
+            with self._model_lock:
+                self.transcriber.warmup()
+            print("[stt] ready.", flush=True)
 
         self.listener.start()
         try:
