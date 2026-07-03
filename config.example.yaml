@@ -77,3 +77,15 @@ injection:
 
   # For "paste": restore the previous clipboard contents afterwards.
   restore_clipboard: true
+
+overlay:
+  # Floating Wispr-style status pill: bars dance with your voice while
+  # recording, a wave animation plays while transcribing, hidden when idle.
+  # It never takes focus or intercepts clicks.
+  enabled: true
+
+  # "bottom_center" or "top_center".
+  position: "bottom_center"
+
+  # Distance from the screen edge, in pixels.
+  margin: 56

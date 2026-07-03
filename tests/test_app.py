@@ -33,6 +33,9 @@ class FakeRecorder:
     def duration(self, audio):
         return len(audio) / self.sample_rate
 
+    def level(self):
+        return 0.5
+
 
 class FakeTranscriber:
     def __init__(self, config):
@@ -127,6 +130,37 @@ def test_injection_waits_for_hotkey_release(app):
     app.listener._pressed.discard("ctrl")
     assert _wait_for(lambda: app.injector.injected)
     assert time.time() - start < 3.0
+
+
+def test_overlay_states_follow_the_pipeline(app):
+    states = []
+    real_set_state = app.overlay.set_state
+
+    def spy(state):
+        states.append(state)
+        real_set_state(state)
+
+    app.overlay.set_state = spy
+    app._on_start()
+    assert states == ["recording"]
+    app._on_stop()
+    assert states[1] == "processing"
+    assert _wait_for(lambda: app.injector.injected)
+    assert _wait_for(lambda: states[-1] == "hidden")
+
+
+def test_overlay_disabled_by_config(monkeypatch):
+    monkeypatch.setattr(app_module, "Recorder", FakeRecorder)
+    monkeypatch.setattr(app_module, "Transcriber", FakeTranscriber)
+    monkeypatch.setattr(app_module, "Cleaner", FakeCleaner)
+    monkeypatch.setattr(app_module, "Injector", FakeInjector)
+    config = load_config(None)
+    config["overlay"]["enabled"] = False
+    app = app_module.App(config)
+    assert app.overlay is None
+    app._on_start()
+    app._on_stop()  # must not blow up without an overlay
+    assert _wait_for(lambda: app.injector.injected)
 
 
 def test_transcription_serialized_by_model_lock(app):

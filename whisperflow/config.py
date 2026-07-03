@@ -47,6 +47,11 @@ DEFAULTS: Dict[str, Any] = {
         "method": "paste",  # or "type"
         "restore_clipboard": True,
     },
+    "overlay": {
+        "enabled": True,
+        "position": "bottom_center",  # or "top_center"
+        "margin": 56,
+    },
 }
 
 

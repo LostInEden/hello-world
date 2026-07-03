@@ -22,18 +22,28 @@ class Recorder:
         self._frames: List[np.ndarray] = []
         self._stream: Optional[sd.InputStream] = None
         self._lock = threading.Lock()
+        self._level = 0.0
 
     def _callback(self, indata, frames, time_info, status):  # noqa: ANN001 - sounddevice API
         if status:
             # Overflows/underruns are non-fatal; surface them for debugging.
             print(f"[audio] {status}", flush=True)
+        rms = float(np.sqrt(np.mean(np.square(indata))))
         with self._lock:
             self._frames.append(indata.copy())
+            # Fast attack, slow decay — lively but smooth as a UI meter.
+            self._level = max(rms, self._level * 0.82)
+
+    def level(self) -> float:
+        """Current smoothed input level in [0, 1], for UI meters."""
+        # ~0.08 RMS is loud speech on a typical mic; scale so it reaches 1.0.
+        return min(1.0, self._level / 0.08)
 
     def start(self) -> None:
         """Begin capturing. Safe to call once per utterance."""
         with self._lock:
             self._frames = []
+            self._level = 0.0
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
             channels=1,

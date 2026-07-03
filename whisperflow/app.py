@@ -36,6 +36,17 @@ class App:
 
         self._model_lock = threading.Lock()
         self._min_seconds = 0.3  # ignore accidental taps shorter than this
+        self._inflight = 0
+        self._inflight_lock = threading.Lock()
+
+        self.overlay = None
+        if config.get("overlay", {}).get("enabled", True):
+            try:
+                from .overlay import Overlay
+
+                self.overlay = Overlay(config["overlay"], level_provider=self.recorder.level)
+            except Exception as exc:
+                print(f"[overlay] disabled ({exc})", flush=True)
 
         self.listener = HotkeyListener(
             combo=config["hotkey"]["combo"],
@@ -44,10 +55,15 @@ class App:
             mode=config["hotkey"]["mode"],
         )
 
+    def _set_overlay(self, state: str) -> None:
+        if self.overlay is not None:
+            self.overlay.set_state(state)
+
     # --- hotkey callbacks (run on the listener thread; keep them quick) ---
 
     def _on_start(self) -> None:
         print("\n🎙️  Recording... (release hotkey to transcribe)", flush=True)
+        self._set_overlay("recording")
         self.recorder.start()
 
     def _on_stop(self) -> None:
@@ -56,38 +72,51 @@ class App:
         seconds = self.recorder.duration(audio)
         if seconds < self._min_seconds:
             print("⏹️  Too short, ignored.", flush=True)
+            self._set_overlay("hidden")
             return
         print(f"⏹️  Captured {seconds:.1f}s, processing...", flush=True)
+        self._set_overlay("processing")
+        with self._inflight_lock:
+            self._inflight += 1
         threading.Thread(target=self._process, args=(audio, released_at), daemon=True).start()
 
     # --- heavy lifting (worker thread) ---
 
     def _process(self, audio, released_at: float) -> None:  # noqa: ANN001
-        with self._model_lock:
-            raw = self.transcriber.transcribe(audio)
-            stt_done = time.perf_counter()
-            if not raw:
-                print("🤷  No speech detected.", flush=True)
-                return
-            print(f"    raw: {raw}", flush=True)
+        try:
+            with self._model_lock:
+                raw = self.transcriber.transcribe(audio)
+                stt_done = time.perf_counter()
+                if not raw:
+                    print("🤷  No speech detected.", flush=True)
+                    return
+                print(f"    raw: {raw}", flush=True)
 
-            if self.cleaner.enabled:
-                final = self.cleaner.clean(raw)
-            else:
-                final = raw
-            clean_done = time.perf_counter()
+                if self.cleaner.enabled:
+                    final = self.cleaner.clean(raw)
+                else:
+                    final = raw
+                clean_done = time.perf_counter()
 
-        print(f"⌨️   Inserting: {final}", flush=True)
-        self._inject_safely(final)
-        done = time.perf_counter()
+            print(f"⌨️   Inserting: {final}", flush=True)
+            self._inject_safely(final)
+            done = time.perf_counter()
 
-        print(
-            f"⏱️   {done - released_at:.2f}s release-to-text "
-            f"(stt {stt_done - released_at:.2f}s, "
-            f"cleanup {clean_done - stt_done:.2f}s, "
-            f"inject {done - clean_done:.2f}s)",
-            flush=True,
-        )
+            print(
+                f"⏱️   {done - released_at:.2f}s release-to-text "
+                f"(stt {stt_done - released_at:.2f}s, "
+                f"cleanup {clean_done - stt_done:.2f}s, "
+                f"inject {done - clean_done:.2f}s)",
+                flush=True,
+            )
+        finally:
+            # Hide the indicator only when no other utterance is recording
+            # (state moved on) or still being processed (inflight > 0).
+            with self._inflight_lock:
+                self._inflight -= 1
+                idle = self._inflight == 0
+            if idle and self.overlay is not None and self.overlay._state == "processing":
+                self._set_overlay("hidden")
 
     def _inject_safely(self, text: str) -> None:
         """Inject text once the hotkey is physically released, with the
@@ -132,10 +161,24 @@ class App:
 
         self.listener.start()
         try:
-            self.listener.join()
+            if self.overlay is not None:
+                # tkinter must own the main thread; hotkey + workers run on
+                # their own threads and poke the overlay via set_state().
+                try:
+                    self.overlay.run()
+                except KeyboardInterrupt:
+                    raise
+                except Exception as exc:
+                    print(f"[overlay] failed ({exc}); continuing without it.", flush=True)
+                    self.overlay = None
+                    self.listener.join()
+            else:
+                self.listener.join()
         except KeyboardInterrupt:
             print("\nShutting down.", flush=True)
         finally:
+            if self.overlay is not None:
+                self.overlay.close()
             self.listener.stop()
 
 

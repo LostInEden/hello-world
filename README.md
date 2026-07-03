@@ -18,6 +18,7 @@ optional "make it sound written" cleanup pass through a small local LLM via
 |---|---|
 | Global push-to-talk hotkey (Hold Mode) | ✅ Hold-to-record via a configurable global hotkey (pynput) |
 | System-wide dictation into any app | ✅ Injects text into the focused field (clipboard paste) |
+| Floating status indicator | ✅ On-screen pill: bars dance with your voice while recording, wave animation while processing (tkinter, no extra deps) |
 | Local/near-realtime transcription | ✅ faster-whisper on CUDA (`large-v3-turbo` by default) |
 | Voice-activity detection | ✅ Silero VAD (bundled in faster-whisper via `vad_filter`) |
 | AI cleanup: filler removal, punctuation, lists, self-corrections | ✅ Local LLM cleanup pass via Ollama (e.g. `gemma3:4b`) |
@@ -130,6 +131,11 @@ Then, in **any** application:
 2. **Hold** the hotkey (default: **Ctrl + Alt**) and speak.
 3. **Release** the hotkey.
 4. Your cleaned-up text is typed at the cursor.
+
+While you speak, a small pill appears at the bottom-center of the screen with
+bars that move with your voice; it switches to a wave animation while your
+words are transcribed and cleaned, then disappears. It never takes focus or
+catches clicks. Configure or disable it under `overlay:` in `config.yaml`.
 
 After every utterance the terminal prints a latency breakdown, e.g.
 `⏱️ 0.84s release-to-text (stt 0.52s, cleanup 0.29s, inject 0.03s)`. If you're
