@@ -4,7 +4,7 @@ from unittest import mock
 
 import requests
 
-from whisperflow.cleanup import Cleaner
+from whisperflow.cleanup import Cleaner, is_faithful_rewrite
 
 
 CONFIG = {
@@ -35,7 +35,7 @@ def test_clean_happy_path():
         assert cleaner.clean(LONG_RAW) == "I think we should meet on Tuesday."
         payload = post.call_args.kwargs["json"]
         assert payload["model"] == "gemma3:4b"
-        assert payload["prompt"] == LONG_RAW
+        assert LONG_RAW in payload["prompt"]  # transcript embedded in the template
         assert payload["stream"] is False
         assert payload["keep_alive"] == "10m"
 
@@ -82,8 +82,52 @@ def test_empty_llm_response_returns_raw_text():
 def test_quoted_llm_response_is_unwrapped():
     cleaner = Cleaner(CONFIG)
     with mock.patch("whisperflow.cleanup.requests.post") as post:
-        post.return_value = _response({"response": '"Cleaned text."'})
-        assert cleaner.clean(LONG_RAW) == "Cleaned text."
+        post.return_value = _response({"response": '"I think we should meet on Tuesday."'})
+        assert cleaner.clean(LONG_RAW) == "I think we should meet on Tuesday."
+
+
+def test_echoed_template_label_is_stripped():
+    cleaner = Cleaner(CONFIG)
+    with mock.patch("whisperflow.cleanup.requests.post") as post:
+        post.return_value = _response({"response": "Edited: I think we should meet on Tuesday."})
+        assert cleaner.clean(LONG_RAW) == "I think we should meet on Tuesday."
+
+
+def test_model_answering_the_transcript_is_rejected():
+    """If the model replies to the dictation instead of editing it, keep the raw text."""
+    cleaner = Cleaner(CONFIG)
+    raw = "hey how are you doing today I was wondering if you're free for lunch"
+    with mock.patch("whisperflow.cleanup.requests.post") as post:
+        post.return_value = _response(
+            {"response": "I'm doing great, thanks for asking! Unfortunately I don't eat lunch."}
+        )
+        assert cleaner.clean(raw) == raw
+
+
+def test_faithful_rewrite_accepts_edits():
+    raw = "um so I think we should uh meet on Monday no wait Tuesday and we need three things first the report second the slides and third the demo"
+    edited = "I think we should meet on Tuesday. We need three things:\n1. The report\n2. The slides\n3. The demo"
+    assert is_faithful_rewrite(raw, edited)  # list numbers and case changes are fine
+
+
+def test_faithful_rewrite_rejects_answers():
+    raw = "hey how are you doing today"
+    answer = "I'm doing great, thank you! How can I help you today?"
+    assert not is_faithful_rewrite(raw, answer)
+
+
+def test_faithful_rewrite_rejects_runaway_expansion():
+    raw = "write a short note about the meeting for the team okay thanks"
+    expansion = (
+        "Dear team, I hope this message finds you well. I wanted to take a moment "
+        "to summarize our recent meeting and outline the key action items we discussed "
+        "so that everyone is aligned going forward and nobody misses a deadline."
+    )
+    assert not is_faithful_rewrite(raw, expansion)
+
+
+def test_faithful_rewrite_rejects_empty():
+    assert not is_faithful_rewrite("some raw text", "")
 
 
 def test_is_available_true_false():
