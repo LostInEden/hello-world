@@ -194,15 +194,18 @@ it starts the app silently in the background; the tray icon (and the on-screen
 pill while dictating) is the only UI. Quit from the tray menu.
 
 To put a **desktop shortcut with the app icon** (`assets/whisperflow.ico`)
-on your desktop (one-time, in PowerShell, from the project folder):
+on your desktop (one-time, in PowerShell, from the project folder —
+`GetFolderPath` finds the real Desktop even when OneDrive relocates it):
 
 ```powershell
+$proj = (Get-Location).Path
+$desktop = [Environment]::GetFolderPath('Desktop')
 $ws = New-Object -ComObject WScript.Shell
-$s = $ws.CreateShortcut("$env:USERPROFILE\Desktop\WhisperFlow.lnk")
+$s = $ws.CreateShortcut("$desktop\WhisperFlow.lnk")
 $s.TargetPath = (Get-Command pythonw).Source
 $s.Arguments = "-m whisperflow"
-$s.WorkingDirectory = (Get-Location).Path
-$s.IconLocation = (Resolve-Path "assets\whisperflow.ico").Path
+$s.WorkingDirectory = $proj
+$s.IconLocation = "$proj\assets\whisperflow.ico"
 $s.Save()
 ```
 
