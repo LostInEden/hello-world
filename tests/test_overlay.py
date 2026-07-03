@@ -78,15 +78,22 @@ def test_render_frame_geometry_and_colors():
 
     img = render_frame([BAR_MIN] * BAR_COUNT, INK)
     assert img.size == (WIDTH, HEIGHT)
-    # corners are outside the pill -> the transparency key color
-    assert img.getpixel((0, 0)) == rgb(TRANSPARENT)
-    assert img.getpixel((WIDTH - 1, HEIGHT - 1)) == rgb(TRANSPARENT)
-    # pill interior (between border and first bar) is the light background
-    assert img.getpixel((16, HEIGHT // 2)) == rgb(PILL_BG)
-    # the vertical center of the pill's left edge is border ink (allow a
-    # little antialiasing blend toward the key color)
-    edge = img.getpixel((0, HEIGHT // 2))
-    assert all(abs(a - b) <= 10 for a, b in zip(edge, rgb(INK)))
+    assert img.mode == "RGBA"
+    # corners are outside the pill -> fully transparent
+    assert img.getpixel((0, 0))[3] == 0
+    assert img.getpixel((WIDTH - 1, HEIGHT - 1))[3] == 0
+    # pill interior (between border and first bar) is the light background, opaque
+    assert img.getpixel((16, HEIGHT // 2)) == rgb(PILL_BG) + (255,)
+    # the vertical center of the pill's left edge is border ink
+    edge = img.getpixel((1, HEIGHT // 2))
+    assert edge[3] > 200  # solidly opaque
+    assert all(abs(a - b) <= 10 for a, b in zip(edge[:3], rgb(INK)))
+
+
+def test_render_frame_respects_dpi_scale():
+    pytest.importorskip("PIL")
+    img = render_frame([BAR_MIN] * BAR_COUNT, INK, scale=1.5)
+    assert img.size == (round(WIDTH * 1.5), round(HEIGHT * 1.5))
 
 
 def test_render_frame_bars_grow_with_height():
